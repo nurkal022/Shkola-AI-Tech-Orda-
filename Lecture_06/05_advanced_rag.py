@@ -1,349 +1,170 @@
 """
-Шаг 5: Продвинутые техники RAG
+RAG Шаг 5: Продвинутые техники
 ==============================
-Улучшение качества RAG: переранжирование, гибридный поиск, 
-self-query и другие продвинутые техники.
+Сравнение методов улучшения качества RAG.
 """
-
-import os
 from pathlib import Path
-from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
-
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.schema import Document
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import LLMChainExtractor
 
 load_dotenv()
 
+# Загрузка компонентов
+llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.3)
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
-class AdvancedRAG:
+INDEX_PATH = "./faiss_harry_potter"
+if not Path(INDEX_PATH).exists():
+    print("❌ Сначала запустите 04_rag_pipeline.py для создания индекса")
+    exit()
+
+vectorstore = FAISS.load_local(INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
+print("✅ Индекс загружен\n")
+
+
+# ============================================================
+# 1. БАЗОВЫЙ ПОИСК (для сравнения)
+# ============================================================
+def basic_search(query: str, k: int = 4):
+    """Обычный векторный поиск"""
+    return vectorstore.similarity_search(query, k=k)
+
+
+# ============================================================
+# 2. MULTI-QUERY: Генерация альтернативных запросов
+# ============================================================
+def multi_query_search(query: str, k: int = 4):
     """
-    Продвинутый RAG с различными стратегиями улучшения качества.
+    Генерируем разные формулировки вопроса → ищем по каждой.
+    Улучшает recall (находим больше релевантных документов).
     """
-    
-    def __init__(
-        self,
-        model_name: str = "gpt-4.1-mini",
-        embedding_model: str = "text-embedding-3-small",
-        vectorstore_path: Optional[str] = None
-    ):
-        self.llm = ChatOpenAI(model=model_name, temperature=0.3)
-        self.embeddings = OpenAIEmbeddings(model=embedding_model)
-        
-        self.vectorstore = None
-        if vectorstore_path and Path(vectorstore_path).exists():
-            self.vectorstore = FAISS.load_local(
-                vectorstore_path,
-                self.embeddings,
-                allow_dangerous_deserialization=True
-            )
-            print(f"✅ Vector store загружен: {vectorstore_path}")
-    
-    # ========================================
-    # Стратегия 1: Multi-Query Retrieval
-    # ========================================
-    def multi_query_retrieve(
-        self, 
-        question: str, 
-        k: int = 4,
-        num_queries: int = 3
-    ) -> List[Document]:
-        """
-        Генерирует несколько вариантов запроса для лучшего покрытия.
-        
-        Идея: один вопрос можно задать по-разному, каждый вариант
-        может найти разные релевантные документы.
-        """
-        # Генерируем альтернативные запросы
-        query_prompt = ChatPromptTemplate.from_template(
-            """Ты помощник для генерации поисковых запросов.
-            Для данного вопроса пользователя, сгенерируй {num_queries} альтернативных 
-            формулировок того же вопроса на русском языке.
-            Каждый запрос на новой строке, без нумерации.
-            
-            Оригинальный вопрос: {question}
-            
-            Альтернативные запросы:"""
-        )
-        
-        chain = query_prompt | self.llm | StrOutputParser()
-        
-        response = chain.invoke({
-            "question": question,
-            "num_queries": num_queries
-        })
-        
-        # Парсим запросы
-        queries = [question]  # Включаем оригинал
-        queries.extend([q.strip() for q in response.strip().split('\n') if q.strip()])
-        
-        print(f"🔍 Сгенерировано {len(queries)} запросов:")
-        for q in queries:
-            print(f"   - {q}")
-        
-        # Собираем уникальные документы
-        all_docs = []
-        seen_contents = set()
-        
-        for query in queries:
-            docs = self.vectorstore.similarity_search(query, k=k)
-            for doc in docs:
-                content_hash = hash(doc.page_content)
-                if content_hash not in seen_contents:
-                    seen_contents.add(content_hash)
-                    all_docs.append(doc)
-        
-        return all_docs[:k * 2]  # Возвращаем больше документов
-    
-    # ========================================
-    # Стратегия 2: Contextual Compression
-    # ========================================
-    def compressed_retrieve(
-        self, 
-        question: str, 
-        k: int = 4
-    ) -> List[Document]:
-        """
-        Сжимает найденные документы, оставляя только релевантные части.
-        
-        Идея: из большого чанка извлечь только ту часть, 
-        которая отвечает на вопрос.
-        """
-        # Создаем компрессор
-        compressor = LLMChainExtractor.from_llm(self.llm)
-        
-        # Создаем compression retriever
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor,
-            base_retriever=self.vectorstore.as_retriever(search_kwargs={"k": k})
-        )
-        
-        docs = compression_retriever.invoke(question)
-        
-        print(f"📦 Сжато до {len(docs)} релевантных фрагментов")
-        return docs
-    
-    # ========================================
-    # Стратегия 3: Reranking (Переранжирование)
-    # ========================================
-    def rerank_documents(
-        self, 
-        question: str,
-        documents: List[Document],
-        top_k: int = 4
-    ) -> List[Document]:
-        """
-        Переранжирование документов с помощью LLM.
-        
-        Идея: векторный поиск хорош, но LLM может лучше оценить
-        релевантность документа к конкретному вопросу.
-        """
-        if not documents:
-            return []
-        
-        rerank_prompt = ChatPromptTemplate.from_template(
-            """Оцени релевантность документа к вопросу по шкале от 0 до 10.
-            Верни ТОЛЬКО число.
-            
-            Вопрос: {question}
-            
-            Документ: {document}
-            
-            Оценка (0-10):"""
-        )
-        
-        chain = rerank_prompt | self.llm | StrOutputParser()
-        
-        scored_docs = []
-        for doc in documents:
-            try:
-                score_str = chain.invoke({
-                    "question": question,
-                    "document": doc.page_content[:1000]  # Ограничиваем длину
-                })
-                score = float(score_str.strip())
-            except:
-                score = 5.0  # Дефолтная оценка
-            
-            scored_docs.append((doc, score))
-        
-        # Сортируем по убыванию оценки
-        scored_docs.sort(key=lambda x: x[1], reverse=True)
-        
-        print(f"📊 Переранжировано {len(documents)} документов")
-        for doc, score in scored_docs[:top_k]:
-            print(f"   Score {score:.1f}: {doc.metadata.get('title', 'N/A')}")
-        
-        return [doc for doc, _ in scored_docs[:top_k]]
-    
-    # ========================================
-    # Стратегия 4: Parent Document Retrieval
-    # ========================================
-    def retrieve_with_context(
-        self, 
-        question: str, 
-        k: int = 4,
-        context_size: int = 1
-    ) -> List[Document]:
-        """
-        Получение документов с окружающим контекстом.
-        
-        Идея: маленькие чанки хороши для поиска, но для ответа
-        может понадобиться больше контекста.
-        """
-        # Находим релевантные чанки
-        docs = self.vectorstore.similarity_search(question, k=k)
-        
-        expanded_docs = []
-        for doc in docs:
-            chunk_id = doc.metadata.get('chunk_id', 0)
-            source = doc.metadata.get('source', '')
-            
-            # Пытаемся найти соседние чанки
-            expanded_content = doc.page_content
-            
-            # Ищем предыдущий чанк
-            if chunk_id > 0:
-                prev_docs = self.vectorstore.similarity_search(
-                    f"chunk_id:{chunk_id - 1} source:{source}",
-                    k=1
-                )
-                if prev_docs:
-                    expanded_content = prev_docs[0].page_content + "\n\n" + expanded_content
-            
-            # Ищем следующий чанк
-            next_docs = self.vectorstore.similarity_search(
-                f"chunk_id:{chunk_id + 1} source:{source}",
-                k=1
-            )
-            if next_docs:
-                expanded_content = expanded_content + "\n\n" + next_docs[0].page_content
-            
-            expanded_doc = Document(
-                page_content=expanded_content,
-                metadata=doc.metadata
-            )
-            expanded_docs.append(expanded_doc)
-        
-        return expanded_docs
-    
-    # ========================================
-    # Полный Advanced RAG Pipeline
-    # ========================================
-    def advanced_query(
-        self,
-        question: str,
-        k: int = 4,
-        use_multi_query: bool = True,
-        use_reranking: bool = True,
-        use_compression: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Полный продвинутый RAG pipeline.
-        """
-        print(f"\n{'='*50}")
-        print(f"🚀 Advanced RAG Query")
-        print(f"{'='*50}")
-        print(f"❓ Вопрос: {question}\n")
-        
-        # Шаг 1: Retrieval
-        if use_multi_query:
-            print("📍 Шаг 1: Multi-Query Retrieval")
-            docs = self.multi_query_retrieve(question, k=k)
-        else:
-            print("📍 Шаг 1: Standard Retrieval")
-            docs = self.vectorstore.similarity_search(question, k=k*2)
-        
-        # Шаг 2: Reranking
-        if use_reranking:
-            print("\n📍 Шаг 2: Reranking")
-            docs = self.rerank_documents(question, docs, top_k=k)
-        
-        # Шаг 3: Compression (опционально)
-        if use_compression:
-            print("\n📍 Шаг 3: Compression")
-            docs = self.compressed_retrieve(question, k=k)
-        
-        # Шаг 4: Generation
-        print("\n📍 Шаг 4: Generation")
-        
-        context = "\n\n---\n\n".join([
-            f"[{doc.metadata.get('title', 'N/A')}]\n{doc.page_content}"
-            for doc in docs
-        ])
-        
-        answer_prompt = ChatPromptTemplate.from_template(
-            """Ты эксперт по книгам о Гарри Поттере. Ответь на вопрос,
-            используя предоставленный контекст.
-            
-            Контекст:
-            {context}
-            
-            Вопрос: {question}
-            
-            Дай подробный и информативный ответ на русском языке:"""
-        )
-        
-        chain = answer_prompt | self.llm | StrOutputParser()
-        
-        answer = chain.invoke({
-            "context": context,
-            "question": question
-        })
-        
-        return {
-            "answer": answer,
-            "num_docs_retrieved": len(docs),
-            "sources": [doc.metadata.get('title') for doc in docs]
-        }
-
-
-def demo_advanced_rag():
-    """Демонстрация продвинутого RAG"""
-    print("="*60)
-    print("🔬 ДЕМОНСТРАЦИЯ ADVANCED RAG")
-    print("="*60)
-    
-    index_path = "./faiss_harry_potter"
-    
-    if not Path(index_path).exists():
-        print("❌ Индекс не найден. Сначала запустите 04_rag_pipeline.py")
-        return
-    
-    rag = AdvancedRAG(
-        model_name="gpt-4.1-mini",
-        vectorstore_path=index_path
+    # Генерируем альтернативные запросы
+    prompt = ChatPromptTemplate.from_template(
+        "Сгенерируй 3 альтернативные формулировки вопроса. Только запросы, по одному на строку.\n\nВопрос: {q}"
     )
+    chain = prompt | llm | StrOutputParser()
+    alt_queries = chain.invoke({"q": query}).strip().split('\n')
     
-    # Сложный вопрос для тестирования
-    question = "Какова связь между Гарри Поттером и Волдемортом? Почему именно Гарри был избран?"
+    all_queries = [query] + [q.strip() for q in alt_queries if q.strip()]
     
-    # Стандартный RAG
-    print("\n" + "="*50)
-    print("📊 СРАВНЕНИЕ СТРАТЕГИЙ")
-    print("="*50)
+    # Собираем уникальные документы
+    seen = set()
+    docs = []
+    for q in all_queries:
+        for doc in vectorstore.similarity_search(q, k=k):
+            content_hash = hash(doc.page_content)
+            if content_hash not in seen:
+                seen.add(content_hash)
+                docs.append(doc)
     
-    # Advanced RAG
-    result = rag.advanced_query(
-        question,
-        k=4,
-        use_multi_query=True,
-        use_reranking=True
+    return docs[:k*2], all_queries
+
+
+# ============================================================
+# 3. RERANKING: Переоценка релевантности с LLM
+# ============================================================
+def rerank_search(query: str, k: int = 4):
+    """
+    Сначала находим много документов, потом LLM оценивает релевантность.
+    Улучшает precision (более точные результаты).
+    """
+    # Получаем больше документов
+    docs = vectorstore.similarity_search(query, k=k*3)
+    
+    # LLM оценивает каждый документ
+    rerank_prompt = ChatPromptTemplate.from_template(
+        "Оцени релевантность документа к вопросу от 0 до 10. Верни ТОЛЬКО число.\n\nВопрос: {q}\nДокумент: {doc}\n\nОценка:"
     )
+    chain = rerank_prompt | llm | StrOutputParser()
     
-    print("\n" + "="*50)
-    print("💡 ФИНАЛЬНЫЙ ОТВЕТ:")
-    print("="*50)
-    print(result['answer'])
-    print(f"\n📚 Использовано источников: {result['num_docs_retrieved']}")
-    print(f"📖 Книги: {', '.join(set(result['sources']))}")
+    scored = []
+    for doc in docs:
+        try:
+            score = float(chain.invoke({"q": query, "doc": doc.page_content[:500]}))
+        except:
+            score = 5.0
+        scored.append((doc, score))
+    
+    # Сортируем по оценке
+    scored.sort(key=lambda x: x[1], reverse=True)
+    
+    return [doc for doc, _ in scored[:k]], scored[:k]
 
 
-if __name__ == "__main__":
-    demo_advanced_rag()
+# ============================================================
+# 4. MMR: Maximum Marginal Relevance (разнообразие)
+# ============================================================
+def mmr_search(query: str, k: int = 4):
+    """
+    MMR балансирует релевантность и разнообразие.
+    Избегает дублирующей информации.
+    """
+    docs = vectorstore.max_marginal_relevance_search(
+        query, 
+        k=k,
+        fetch_k=20,      # Сначала берем 20
+        lambda_mult=0.5  # 0=разнообразие, 1=релевантность
+    )
+    return docs
 
+
+# ============================================================
+# СРАВНЕНИЕ МЕТОДОВ
+# ============================================================
+print("="*60)
+print("📊 СРАВНЕНИЕ МЕТОДОВ ПОИСКА")
+print("="*60)
+
+query = "Как Гарри победил Волдеморта?"
+print(f"\n❓ Запрос: {query}\n")
+
+# 1. Базовый поиск
+print("-"*60)
+print("1️⃣ БАЗОВЫЙ ПОИСК")
+basic_docs = basic_search(query)
+print(f"   Найдено: {len(basic_docs)} документов")
+for doc in basic_docs[:2]:
+    print(f"   • [{doc.metadata['title']}] {doc.page_content[:100]}...")
+
+# 2. Multi-Query
+print("\n" + "-"*60)
+print("2️⃣ MULTI-QUERY (альтернативные формулировки)")
+mq_docs, queries = multi_query_search(query)
+print(f"   Запросы: {queries}")
+print(f"   Найдено: {len(mq_docs)} уникальных документов")
+
+# 3. Reranking
+print("\n" + "-"*60)
+print("3️⃣ RERANKING (переоценка LLM)")
+rr_docs, scores = rerank_search(query)
+print(f"   Топ документы по оценке LLM:")
+for doc, score in scores[:3]:
+    print(f"   • Score {score:.0f}: [{doc.metadata['title']}]")
+
+# 4. MMR
+print("\n" + "-"*60)
+print("4️⃣ MMR (разнообразие)")
+mmr_docs = mmr_search(query)
+print(f"   Найдено: {len(mmr_docs)} разнообразных документов")
+titles = [doc.metadata['title'] for doc in mmr_docs]
+print(f"   Источники: {set(titles)}")
+
+
+# ============================================================
+# РЕКОМЕНДАЦИИ
+# ============================================================
+print("\n" + "="*60)
+print("💡 КОГДА ИСПОЛЬЗОВАТЬ")
+print("="*60)
+print("""
+   БАЗОВЫЙ      → Простые случаи, быстрый поиск
+   MULTI-QUERY  → Сложные вопросы, нужен широкий охват
+   RERANKING    → Важна точность, есть время на LLM вызовы
+   MMR          → Нужны разнообразные источники
+   
+   🔥 ЛУЧШАЯ КОМБИНАЦИЯ:
+   Multi-Query → Reranking → MMR
+""")

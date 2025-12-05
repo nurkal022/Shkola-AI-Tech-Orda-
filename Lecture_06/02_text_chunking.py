@@ -1,166 +1,126 @@
 """
-Шаг 2: Разбиение текста на чанки (Chunking)
-==========================================
-Критический этап для RAG - правильное разбиение текста влияет на качество поиска.
+RAG Шаг 2: Сравнение стратегий Chunking
+=======================================
+Сравниваем популярные методы разбиения текста на чанки.
 """
-
-from typing import List, Dict, Any
-from dataclasses import dataclass
+from pathlib import Path
 from langchain.text_splitter import (
-    RecursiveCharacterTextSplitter,
     CharacterTextSplitter,
-    TokenTextSplitter
+    RecursiveCharacterTextSplitter,
+    TokenTextSplitter,
+    SentenceTransformersTokenTextSplitter,
 )
-from langchain.schema import Document
+
+# Загрузка тестового текста (первая книга)
+text = list(Path("data").glob("*.txt"))[0].read_text(encoding='utf-8')
+print(f"📖 Тестовый текст: {len(text):,} символов\n")
+
+# ============================================================
+# 1. CharacterTextSplitter - Простое разбиение по символам
+# ============================================================
+print("="*60)
+print("1️⃣ CharacterTextSplitter")
+print("   Разбивает по указанному разделителю (по умолчанию \\n\\n)")
+print("="*60)
+
+splitter1 = CharacterTextSplitter(
+    separator="\n\n",      # Разделитель
+    chunk_size=1000,       # Макс размер чанка
+    chunk_overlap=200,     # Перекрытие между чанками
+)
+chunks1 = splitter1.split_text(text)
+print(f"   Чанков: {len(chunks1)}")
+print(f"   Размеры: min={min(len(c) for c in chunks1)}, max={max(len(c) for c in chunks1)}")
 
 
-@dataclass
-class ChunkConfig:
-    """Конфигурация для chunking"""
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    separators: List[str] = None
-    
-    def __post_init__(self):
-        if self.separators is None:
-            # Русскоязычные разделители
-            self.separators = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "]
+# ============================================================
+# 2. RecursiveCharacterTextSplitter - Рекурсивное разбиение
+# ============================================================
+print("\n" + "="*60)
+print("2️⃣ RecursiveCharacterTextSplitter (РЕКОМЕНДУЕТСЯ)")
+print("   Пробует разбить по списку разделителей по очереди")
+print("="*60)
+
+splitter2 = RecursiveCharacterTextSplitter(
+    separators=["\n\n", "\n", ". ", "! ", "? ", ", ", " "],
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+chunks2 = splitter2.split_text(text)
+print(f"   Чанков: {len(chunks2)}")
+print(f"   Размеры: min={min(len(c) for c in chunks2)}, max={max(len(c) for c in chunks2)}")
 
 
-def create_recursive_splitter(config: ChunkConfig) -> RecursiveCharacterTextSplitter:
-    """
-    Рекурсивный сплиттер - лучший выбор для большинства случаев.
-    Пытается разбить по более крупным разделителям, затем по мелким.
-    """
-    return RecursiveCharacterTextSplitter(
-        chunk_size=config.chunk_size,
-        chunk_overlap=config.chunk_overlap,
-        separators=config.separators,
-        length_function=len,
+# ============================================================
+# 3. TokenTextSplitter - Разбиение по токенам
+# ============================================================
+print("\n" + "="*60)
+print("3️⃣ TokenTextSplitter")
+print("   Разбивает по токенам (важно для LLM с лимитом токенов)")
+print("="*60)
+
+splitter3 = TokenTextSplitter(
+    chunk_size=256,        # Токенов, не символов!
+    chunk_overlap=50,
+)
+chunks3 = splitter3.split_text(text)
+print(f"   Чанков: {len(chunks3)}")
+print(f"   Размеры (символы): min={min(len(c) for c in chunks3)}, max={max(len(c) for c in chunks3)}")
+
+
+# ============================================================
+# СРАВНЕНИЕ РАЗМЕРОВ ЧАНКОВ
+# ============================================================
+print("\n" + "="*60)
+print("📊 СРАВНЕНИЕ: Разные размеры чанков")
+print("="*60)
+
+for chunk_size in [500, 1000, 1500, 2000]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_size // 5,  # 20% overlap
     )
-
-
-def create_character_splitter(config: ChunkConfig) -> CharacterTextSplitter:
-    """
-    Простой сплиттер по символам.
-    Разбивает строго по указанному разделителю.
-    """
-    return CharacterTextSplitter(
-        chunk_size=config.chunk_size,
-        chunk_overlap=config.chunk_overlap,
-        separator="\n\n",
-    )
-
-
-def chunk_text(text: str, splitter) -> List[str]:
-    """Разбиение текста на чанки"""
-    return splitter.split_text(text)
-
-
-def chunk_with_metadata(
-    text: str, 
-    metadata: Dict[str, Any],
-    splitter
-) -> List[Document]:
-    """
-    Разбиение текста с сохранением метаданных.
-    Каждый чанк получает метаданные + номер чанка.
-    """
     chunks = splitter.split_text(text)
-    documents = []
-    
-    for i, chunk in enumerate(chunks):
-        doc_metadata = metadata.copy()
-        doc_metadata["chunk_id"] = i
-        doc_metadata["chunk_total"] = len(chunks)
-        
-        documents.append(Document(
-            page_content=chunk,
-            metadata=doc_metadata
-        ))
-    
-    return documents
+    avg_size = sum(len(c) for c in chunks) // len(chunks)
+    print(f"   chunk_size={chunk_size}: {len(chunks)} чанков, avg={avg_size} символов")
 
 
-def compare_chunking_strategies(text: str) -> Dict[str, List[str]]:
-    """
-    Сравнение разных стратегий chunking.
-    Полезно для выбора оптимальной стратегии.
-    """
-    results = {}
-    
-    # Разные размеры чанков
-    sizes = [500, 1000, 1500, 2000]
-    
-    for size in sizes:
-        config = ChunkConfig(chunk_size=size, chunk_overlap=size // 5)
-        splitter = create_recursive_splitter(config)
-        chunks = chunk_text(text, splitter)
-        results[f"recursive_{size}"] = chunks
-        
-    return results
+# ============================================================
+# СРАВНЕНИЕ OVERLAP
+# ============================================================
+print("\n" + "="*60)
+print("📊 СРАВНЕНИЕ: Разный overlap")
+print("="*60)
+
+for overlap in [0, 100, 200, 300]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=overlap,
+    )
+    chunks = splitter.split_text(text)
+    print(f"   overlap={overlap}: {len(chunks)} чанков")
 
 
-def analyze_chunks(chunks: List[str], name: str = "chunks") -> None:
-    """Анализ качества разбиения"""
-    if not chunks:
-        print(f"❌ {name}: пустой список чанков")
-        return
-        
-    lengths = [len(c) for c in chunks]
-    
-    print(f"\n📊 Анализ '{name}':")
-    print(f"   Количество чанков: {len(chunks)}")
-    print(f"   Мин. размер: {min(lengths):,} символов")
-    print(f"   Макс. размер: {max(lengths):,} символов")
-    print(f"   Средний размер: {sum(lengths) // len(lengths):,} символов")
-    print(f"   Общий размер: {sum(lengths):,} символов")
+# ============================================================
+# ПРИМЕР ЧАНКОВ
+# ============================================================
+print("\n" + "="*60)
+print("📝 ПРИМЕР ЧАНКА (RecursiveCharacterTextSplitter)")
+print("="*60)
+print(chunks2[5][:400] + "...")
 
 
-def demo_chunking():
-    """Демонстрация различных стратегий chunking"""
-    from pathlib import Path
-    
-    # Загружаем первую книгу для демонстрации
-    data_path = Path("data")
-    first_book = list(data_path.glob("*.txt"))[0]
-    
-    with open(first_book, 'r', encoding='utf-8') as f:
-        text = f.read()
-    
-    print("="*60)
-    print("🔪 ДЕМОНСТРАЦИЯ CHUNKING СТРАТЕГИЙ")
-    print("="*60)
-    print(f"📖 Файл: {first_book.name}")
-    print(f"📏 Размер: {len(text):,} символов")
-    
-    # Стратегия 1: Маленькие чанки (для точного поиска)
-    config_small = ChunkConfig(chunk_size=500, chunk_overlap=100)
-    splitter_small = create_recursive_splitter(config_small)
-    chunks_small = chunk_text(text, splitter_small)
-    analyze_chunks(chunks_small, "Маленькие чанки (500)")
-    
-    # Стратегия 2: Средние чанки (баланс)
-    config_medium = ChunkConfig(chunk_size=1000, chunk_overlap=200)
-    splitter_medium = create_recursive_splitter(config_medium)
-    chunks_medium = chunk_text(text, splitter_medium)
-    analyze_chunks(chunks_medium, "Средние чанки (1000)")
-    
-    # Стратегия 3: Большие чанки (больше контекста)
-    config_large = ChunkConfig(chunk_size=2000, chunk_overlap=400)
-    splitter_large = create_recursive_splitter(config_large)
-    chunks_large = chunk_text(text, splitter_large)
-    analyze_chunks(chunks_large, "Большие чанки (2000)")
-    
-    # Показываем пример чанка
-    print("\n" + "="*60)
-    print("📝 ПРИМЕР ЧАНКА (средний размер):")
-    print("="*60)
-    print(chunks_medium[10][:500] + "...")
-    
-    return chunks_medium
-
-
-if __name__ == "__main__":
-    demo_chunking()
-
+# ============================================================
+# РЕКОМЕНДАЦИИ
+# ============================================================
+print("\n" + "="*60)
+print("💡 РЕКОМЕНДАЦИИ")
+print("="*60)
+print("""
+   • RecursiveCharacterTextSplitter - лучший выбор для большинства случаев
+   • chunk_size=1000-1500 - хороший баланс контекст/точность
+   • chunk_overlap=200-300 - сохраняет контекст между чанками
+   
+   Маленькие чанки (500):  + точный поиск, - мало контекста
+   Большие чанки (2000):   + много контекста, - менее точный поиск
+""")
