@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document>
+    <title>Пример XML файла</title>
+    <description>Файл для демонстрации работы с XML данными</description>
+
+    <sections>
+        <section id="1">
+            <title>Введение</title>
+            <content>Это первый раздел с некоторым содержимым.</content>
+        </section>
+
+        <section id="2">
+            <title>Основная часть</title>
+            <content>Это второй раздел с дополнительной информацией.</content>
+        </section>
+
+        <section id="3">
+            <title>Заключение</title>
+            <content>И заключительный раздел документа.</content>
+        </section>
+    </sections>
+
+    <metadata>
+        <version>1.0</version>
+        <created>2024-01-01</created>
+        <author>Демо система</author>
+    </metadata>
+</document>
