@@ -1,0 +1,24 @@
+# Lecture 10: Advanced Search (Hybrid Search & RRF)
+# =================================================
+
+# Core LangChain
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+
+# Search Methods
+rank-bm25>=0.2.2
+
+# Vector Stores
+faiss-cpu>=1.7.4
+
+# OpenAI
+openai>=1.50.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Text Processing
+tiktoken>=0.5.0
+
