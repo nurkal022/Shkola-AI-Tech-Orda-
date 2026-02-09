@@ -1,0 +1,7 @@
+# Lecture 15: Multi-Agent Systems with AutoGen
+# ============================================
+
+# Используем версию 0.2.x для стабильного API с ConversableAgent
+pyautogen<0.3
+openai>=1.50.0
+python-dotenv>=1.0.0
