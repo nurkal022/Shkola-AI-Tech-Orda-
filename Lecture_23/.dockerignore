@@ -1,0 +1,13 @@
+# Не копируем в контейнер:
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+*.md
+*.pptx
+.venv
+venv
+.mypy_cache
+.pytest_cache
+output/
