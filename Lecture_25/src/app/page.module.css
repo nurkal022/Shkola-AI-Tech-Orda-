@@ -1,0 +1,16 @@
+.main { display: flex; flex-direction: column; height: 100vh; max-width: 860px; margin: 0 auto; background: white; box-shadow: 0 0 40px rgba(0,0,0,.08); }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #4f46e5; color: white; flex-shrink: 0; }
+.headerLeft { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 28px; }
+.title { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.subtitle { font-size: 12px; opacity: .75; }
+.headerRight { display: flex; align-items: center; gap: 10px; }
+.statusDot { width: 10px; height: 10px; border-radius: 50%; transition: background .3s; }
+.statusIdle { background: #86efac; }
+.statusActive { background: #fbbf24; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: .7; } }
+.statusLabel { font-size: 13px; opacity: .9; min-width: 90px; }
+.clearButton { background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: white; padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: background .15s; }
+.clearButton:hover:not(:disabled) { background: rgba(255,255,255,.25); }
+.clearButton:disabled { opacity: .4; cursor: not-allowed; }
+.body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
