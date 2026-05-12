@@ -22,6 +22,11 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
+# Caches / build artifacts
+.cache/
+.next/
+node_modules/
+
 # Distribution
 dist/
 build/

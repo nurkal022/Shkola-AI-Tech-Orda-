@@ -27,7 +27,7 @@
 - Сооснователь AI automation agency
 - Cognitive Architect, Lead AI PM
 - Опыт работы с более чем 1000 студентов
-- Автор MCP-Builde
+- Автор MCP-Builder
 - Читает Core-лекции, проводит AMA и Demo Day, утверждает задания
 
 ### Приглашенные спикеры
@@ -275,19 +275,27 @@
 ```
 /
 ├── README.md                 # Этот файл
-├── info.md                   # Подробная информация о курсе
-├── Lecture_1/               # Материалы первой лекции
-├── Lecture_2/               # Материалы второй лекции
-├── ...                      # И так далее для всех лекций
-├── requirements.txt         # Зависимости Python
-└── projects/                # Папка с проектами
+├── requirements.txt          # Зависимости Python
+├── Lecture_01/               # Материалы первой лекции
+├── Lecture_02/               # Материалы второй лекции
+├── ...                       # И так далее для всех лекций
+└── Lecture_26/               # Финальный проект
 ```
 
 ## 🚀 Начало работы
 
-1. Клонируйте репозиторий
-2. Установите зависимости: `pip install -r requirements.txt`
-3. Начните с материалов Lecture_1
+1. Клонируйте репозиторий:
+   ```bash
+   git clone https://github.com/nurkal022/TechOrda.git
+   cd TechOrda
+   ```
+2. Создайте виртуальное окружение и установите зависимости:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+3. Начните с материалов [Lecture_01](Lecture_01/)
 
 ## 📞 Контакты
 
